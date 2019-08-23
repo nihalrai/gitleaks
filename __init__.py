@@ -6,9 +6,14 @@ import requests
 import traceback
 import subprocess
 
+from gitleaks_tool.utils import default_output, run_command, make_folder, clone_repo, git_grep
+
 AUTHOR = {
     "name": "NIHAL RAI"
 }
+
+# Github api url from searching code
+API = "https://api.github.com/search/code?"
 
 
 class Gitleaks:
@@ -17,70 +22,11 @@ class Gitleaks:
         self.query = query
         self.token = token
 
-    def default_output(self):
-        
-        return json.dumps({
-                "tool": "gitleaks",
-                "type": "failure",
-                "data": "",
-                "error": ""
-            })
-
     def get_tool_name(self):
         
         return {
                 "tool-name": "gitleak"
             }
-    
-    def run_command(self, command):
-        cmd       = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash')
-        cmd.wait()
-        
-        output, _ = cmd.communicate()
-
-        print output, _
-        
-        if cmd.returncode != 0:
-            return False
-    
-        return True
-    
-    def make_folder(self):
-        
-        path = os.path.join("/tmp", hashlib.sha1(self.query).hexdigest())
-        
-        if os.path.exists(path):
-            self.run_command("rm -rf %s" % (path))
-        
-        self.run_command("mkdir %s" % (path))
-
-        if not os.path.exists(path):
-            return False
-        
-        return path
-
-    def clone_repo(self, repo_data, folder):
-        
-        # Git binary path
-        GIT_PATH = "/usr/bin/git"
-        # Count the clone succes
-        count = 0
-
-        for data in repo_data:
-            try:
-                link = data["link"] + ".git"
-                repo_name = link.split("/")[-1].replace(".git", "")
-                filename = os.path.join(folder, repo_name)
-
-                clone = self.run_command("%s clone %s %s" % (GIT_PATH, link, filename))
-
-                if clone:
-                    count += 1
-            except:
-                traceback.print_exc()
-                continue
-
-        return count
 
     def send_request(self, url):
 
@@ -95,7 +41,7 @@ class Gitleaks:
     def search_query(self):
 
         query = urllib.urlencode({'q': '%s' % (self.query)})
-        url = "https://api.github.com/search/code?" + query
+        url = API + query
 
         return self.send_request(url)
 
@@ -109,7 +55,7 @@ class Gitleaks:
             return ""
 
         return contents["sha"]
-        
+    
     def get_contributors(self, contributors_url):
         contents = self.send_request(contributors_url)
         
@@ -132,6 +78,28 @@ class Gitleaks:
         
         return contributors
 
+    def get_output(self, data, output):
+        
+        # Create a unique folder using sha1 hash of self.query
+        folder = make_folder(self.query)
+        
+        if not folder:
+            return False
+
+        count, data = clone_repo(data, folder)
+
+        # No repositories is cloned
+        if count == 0:
+            return False
+        
+        output["type"] = "success"
+        output["clone-path"] = folder
+    
+        output["data"] = data
+        output["clone-stats"] = "%s of %s are cloned" % (count, len(data))
+
+        return output
+    
     def get_repositories(self):
 
         # Search query
@@ -161,36 +129,34 @@ class Gitleaks:
                 if item["repository"].has_key("commits_url"):
                     repo["commit"] = self.get_commit(item["repository"]["commits_url"])
 
-                # Append only all data required are found
+                # Append only when all data required are found and if it is not in data
                 if sorted(["name", "link", "commit", "contributors"]) == sorted(list(repo)) and repo not in data:
                     data.append(repo)
-                print repo
-        
-        # Create a unique folder using sha1 hash of self.query
-        folder = self.make_folder()
-
-        if folder:
-            count  = self.clone_repo(data, folder)
-        else:
-            count = 0
-
-        return data, count
+            break
+        return data
 
     def search(self):
         
-        output = json.loads(self.default_output())
+        output = json.loads(default_output())
         try:
-            data, count = self.get_repositories()
-            
+            data = self.get_repositories()
+
             if not data:
                 return output
-                
-            output["type"] = "success"
-            output["data"] = data
-            output["clone-stats"] = "%s of %s are cloned" % (count, len(data))
+
+            final_output = self.get_output(data, output)
+
+            if not final_output:
+                return output
             
-            return output
-        
+            # Search in clone repo to get sensitive data
+            matched = git_grep(final_output["data"])
+            print matched
+            if matched:
+                final_output["sensitive-info"] = matched    
+            
+            return final_output
+
         except:
             traceback.print_exc()
             return output
