@@ -27,14 +27,46 @@ class Gitleaks:
         return {
                 "tool-name": "gitleak"
             }
-
+    
     def send_request(self, url):
 
         headers = {"Authorization": "token %s" % (self.token)}
         response = requests.get(url, headers=headers, allow_redirects=False, timeout=20)
 
-        if response.status_code in range(200,300):
-            return json.loads(response.content)
+        if response.status_code in range(200,300) and 'json' in str(response.headers['content-type']):
+            content = json.loads(response.content)
+
+            # In case of pagination the header return in response consist of link key
+            # that usually have keys like last, previous and next which further have key named url
+            # {
+            #   'prev': {
+            #               'url': 'https://api.github.com/search/code?q=go&page=1', 
+            #               'rel': 'prev'
+            #           },
+            #  'last': {
+            #               'url': 'https://api.github.com/search/code?q=go&page=34',
+            #               'rel': 'last'}, 
+            #  'first': {
+            #               'url': 'https://api.github.com/search/code?q=go&page=1',
+            #               'rel': 'first'
+            #           }, 
+            #   'next': {
+            #               'url': 'https://api.github.com/search/code?q=go&page=3', 
+            #   'rel': 'next'
+            #           }
+            # }
+
+            if response.links and response.links.has_key('last') and response.links['last'].has_key('url'):
+                last_page = response.links['last']['url'].split('=')[-1]
+                for page in range(2, int(last_page)+1):
+                    try:
+                        response = requests.get(url + "&page=%s" % (page), headers=headers, allow_redirects=False, timeout=20)
+                        if response.status_code in range(200, 300) and 'json' in str(response.headers['content-type']):
+                            content.update(json.loads(response.content))
+                    except:
+                        traceback.print_exc()
+                        continue    
+            return content
         
         return {}
 
@@ -149,6 +181,7 @@ class Gitleaks:
             if not final_output:
                 return output
             
+            print final_output["data"]
             # Search in clone repo to get sensitive data
             matched = git_grep(final_output["data"])
             print matched

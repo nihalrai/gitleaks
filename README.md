@@ -76,6 +76,13 @@ Referrer Policy: no-referrer-when-downgrade
 - Only repositories with fewer than 500,000 files are searchable.
 - Users who are signed in can search all public repositories.
 
+## Pagination Issues
+
+[Pagination Documentation](https://developer.github.com/v3/#pagination)
+- Github paginate an api result when the return data is vast(> 100)
+- It return multiple items with sending the link for next page of pagination
+- We can traverse through the link to get all results using this [approach](https://developer.github.com/v3/guides/traversing-with-pagination/)
+
 ## TODO
 
 - Get code data without authentication
