@@ -11,28 +11,31 @@ GIT_PATH = "/usr/bin/git"
 # Threads count required to clone repositories
 thread_count = 5
 
+
 def default_output():
-    
+
     return json.dumps({
-            "tool": "gitleaks",
-            "type": "failure",
-            "data": "",
-            "error": ""
-        })
+        "tool": "gitleaks",
+        "type": "failure",
+        "data": "",
+        "error": ""
+    })
+
 
 def run_command(command):
     
     try:
-        cmd       = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash')
+        cmd    = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash')
         output = cmd.communicate()
         
         if cmd.returncode != 0 or output[1]:
             return False
-
+        
         return (output[0].strip("\n"))
     except:
         traceback.print_exc()
-        return False    
+        return False
+
 
 def make_folder(file_name):
     
@@ -47,6 +50,7 @@ def make_folder(file_name):
         return False
     
     return path
+
 
 def clone_repo(repo_data, folder):
         
@@ -100,6 +104,7 @@ def clone_repo(repo_data, folder):
 
     return count, repo_data
 
+
 def git_grep(repo_data):
     
     # Grep output to return
@@ -111,13 +116,13 @@ def git_grep(repo_data):
         if data.has_key("cloned-path"):
             repo_path.append(data["cloned-path"])
 
-    # https://github.com/dxa4481/truffleHog/blob/dev/scripts/searchOrg.py#L10    
+    # https://github.com/dxa4481/truffleHog/blob/dev/scripts/searchOrg.py#L10
     search = {
         "regex": {
-            "subdomain": "/^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$/",
-            "slack-token": "(xox[p|b|o|a]-[0-9]{12}-[0-9]{12}-[0-9]{12}-[a-z0-9]{32})",
-            "aws-keys": "AKIA[0-9A-Z]{16}",
-            "email-id": "\S+@\S+"
+            "subdomain": r"/^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$/",
+            "slack-token": r"(xox[p|b|o|a]-[0-9]{12}-[0-9]{12}-[0-9]{12}-[a-z0-9]{32})",
+            "aws-keys": r"AKIA[0-9A-Z]{16}",
+            "email-id": r"\S+@\S+"
         },
         "patterns": [
             "password",
