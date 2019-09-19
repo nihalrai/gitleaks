@@ -17,8 +17,14 @@ class Gitleaks:
         self.github = Github(self.token)
     
     def run(self):
-        print json.dumps(self._search(), indent=4)
-    
+        try:
+            result = self._search()
+            print json.dumps(result, indent=4)
+        except:
+            # Json dump throws error if special case characters
+            print "Error Occured"
+            traceback.print_exc()
+
     def _search(self):
         
         try:
@@ -26,26 +32,43 @@ class Gitleaks:
             
             if not repos:
                 return None
-            
-            return self._clone_it(repos)
-            
-            # final_output = self.get_output(data, output)
 
-            # if not final_output:
-            #     return output
-            
-            # print final_output["data"]
-            # # Search in clone repo to get sensitive data
-            # matched = git_grep(final_output["data"])
-            # print matched
-            # if matched:
-            #     final_output["sensitive-info"] = matched
-            
-            # return final_output
-        
-        except Exception as e:
-            print str(e)
+            cloned_repos = self._clone_it(repos)
+            output_cache = "./cache.json"
+
+            for repo in cloned_repos:
+                finding = []
+                if repo.has_key("path"):
+                    try:
+                        status = run_command("./source/gitleaks --repo-path=%s --report=%s" % (repo["path"], output_cache))
+                        if not status or not os.path.exists(output_cache):
+                            continue
+                        
+                        with open(output_cache, "r") as file:
+                            finding.append(file.read())
+                        
+                        # Clear the cache file since gitleaks does not clear the output file if no sensitive data found
+                        run_command("echo > %s" % (output_cache))
+                        
+                        # Avoid empty file to append in sensitive data
+                        if len(str(finding)) > 10:
+                            repo["sensitive-data"] = finding
+                    except:
+                        traceback.print_exc()
+                        continue
+                
+                # Delete the repo's dict which does not have any sensitive data
+                if not repo.has_key("sensitive-data"):
+                    cloned_repos.remove(repo)
+
+            # Delete the output cache file
+            if os.path.exists(output_cache):
+                os.remove(output_cache)
+
+            return cloned_repos
+        except:
             traceback.print_exc()
+            return {}
     
     # fetch query or keyword found repositories
     def _fetch_query_match_repositories(self):
@@ -74,12 +97,8 @@ class Gitleaks:
             if "commits_url" in item["repository"]:
                 repo["last_commit"] = self.github.fetch_last_commit_hash(item["repository"]["commits_url"])
             
-            print repo
-            
             if repo not in repos:
                 repos.append(repo)
-            
-            break
         
         return repos
     
@@ -91,8 +110,12 @@ class Gitleaks:
             return None
         
         for repository in repositories:
-            path = Git().clone(repository, root)
-            repository['path'] = path
+            try:
+                path = Git().clone(repository, root)
+                if os.path.exists:
+                    repository['path'] = path
+            except:
+                continue
         
         return repositories
     
@@ -274,34 +297,70 @@ class Git:
     
     def __init__(self):
         pass
-    
+
     def clone(self, repository, destination):
         
         repository_path  = os.path.join(destination, repository["name"])
+        """
+        If path exists, then check the latest commit of the repo already cloned
+        and compare it with the commit of repo from crawler. if same return the
+        repo path without cloning it again.
+        """
+        crawled_repo_commit = ""
+
+        if repository.has_key('last_commit'):
+            crawled_repo_commit = str(repository['last_commit'])
+
+        if os.path.exists(repository_path):
+            try:
+                last_commit = self.get_last_commit_hash(repository_path)
+                
+                if last_commit and crawled_repo_commit == last_commit:
+                    return repository_path
+                
+                else:
+                    """
+                    if last commit is not same, pull from the repo and check for
+                    last commit again.
+                    """
+                    pull_git = run_command("%s -C %s pull origin master" % (self.GIT_PATH, repository_path))
+                    last_commit = self.get_last_commit_hash(repository_path)
+                    
+                    if pull_git and last_commit and crawled_repo_commit == last_commit:
+                        return repository_path                    
+            except:
+                traceback.print_exc()
+                """
+                if all checks are not executed and there is an exception
+                it implies that the folder is an incomplete clone, we have to change the repository path
+                as git does not allow cloning to an existing folder and 
+                exception will be raised, so rename the old folder
+                """
+                os.rename(repository_path, repository_path + "_old")
         
         clone = run_command("%s clone %s %s" % (self.GIT_PATH,
                                                 "%s.git" % repository["link"],
                                                 repository_path))
-        
+
         if not clone:
             return FailedToCloneRepositoryException("Failed to clone the repository: %s" % repository['name'])
         
         last_commit = self.get_last_commit_hash(repository_path)
         
-        if not last_commit or repository['last_commit'] != last_commit:
+        if not last_commit or crawled_repo_commit != last_commit:
             return FailedToCloneRepositoryException("Last commit doesn't match: Repository (%s) != Cloned (%s)"
                                                     % (repository['last_commit'],
                                                        last_commit))
         
         return repository_path
-    
+
     def get_last_commit_hash(self, repository_path):
         
         if not os.path.exists(repository_path):
             return None
         
         last_commit = run_command("%s -C %s rev-parse HEAD" % (self.GIT_PATH, repository_path))
-        
+
         # run_command method returns bool type if failed
         last_commit = last_commit.strip("\n") if type(last_commit) == str else ""
         

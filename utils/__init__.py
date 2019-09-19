@@ -14,16 +14,16 @@ def run_command(command):
         cmd    = subprocess.Popen(command,
                                   shell=True,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  executable='C:\\Program Files\\Git\\bin\\bash')
+                                  executable='/bin/bash')
+            
         output = cmd.communicate()
         
-        if cmd.returncode != 0 or output[1]:
+        if cmd.returncode != 0:
             return False
         
         return output[0].strip("\n")
     
-    except Exception as e:
-        print str(e)
+    except:
         traceback.print_exc()
         return False
 
